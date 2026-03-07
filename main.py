@@ -19,25 +19,21 @@ class Database:
         self.conn.commit()
 
 
-# --- PDF ইনভয়েস জেনারেটর (Deprecation Warnings Fixed) ---
 def generate_pdf_invoice(customer, product, qty, price, total, save_path):
     pdf = FPDF(unit="mm", format=(105, 148))
     pdf.add_page()
     
-    # Header
     pdf.set_font("Helvetica", 'B', 14)
     pdf.cell(0, 10, "Sayem FACTORY PRO", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 5, "Sales Invoice / Money Receipt", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
-    # Info
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 6, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Customer: {customer}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 5, "-"*50, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
-    # Content Table
     pdf.set_font("Helvetica", 'B', 9)
     pdf.cell(40, 8, "Product")
     pdf.cell(20, 8, "Qty")
@@ -49,7 +45,6 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_path):
     pdf.cell(25, 8, f"{total}", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
-    # Grand Total
     pdf.set_font("Helvetica", 'B', 11)
     pdf.cell(0, 10, f"Grand Total: Tk {total}", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
@@ -57,51 +52,34 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_path):
     pdf.set_font("Helvetica", 'I', 8)
     pdf.cell(0, 5, "Thank you for your business!", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # ফাইলের নাম ও পাথ ফিক্সড করা
     file_name = f"invoice_{datetime.now().strftime('%H%M%S')}.pdf"
     
-    # assets ফোল্ডার না থাকলে তৈরি করা
-    if not os.path.exists("assets"):
-        os.makedirs("assets")
-        
-    # ফাইলটি assets ফোল্ডারের ভেতর সেভ করা
-    file_path = os.path.join("assets", file_name)
-    pdf.output(file_path)
-    return file_name # শুধু ফাইলের নাম রিটার্ন করুন
+    # --- স্মার্ট পাথ ম্যানেজমেন্ট ---
+    # সেভ করার জন্য ফুল পাথ তৈরি
+    full_save_path = os.path.join(save_path, file_name)
+    pdf.output(full_save_path)
+    
+    return file_name # শুধুমাত্র ফাইলের নাম রিটার্ন করবে
 
 def main(page: ft.Page):
-    # ১. ডাটাবেস পাথ নির্ধারণ (Web mode ফিক্সড)
-    # getattr ব্যবহার করা হয়েছে যাতে user_data_dir না থাকলে এরর না দেয়
-    user_data_path = getattr(page, "user_data_dir", None)
-    
-    if user_data_path is None:
-        # যদি ওয়েব মোড বা Ngrok হয়, তবে বর্তমান ফোল্ডার ব্যবহার করবে
-        user_data_path = os.getcwd()
-    
-    # ফোল্ডার নিশ্চিত করা
-    if not os.path.exists(user_data_path):
-        try:
-            os.makedirs(user_data_path)
-        except:
-            pass
-
-    # ডাটাবেস ফাইল তৈরি
-    db_file = os.path.join(user_data_path, "factory_pro.db")
-    db = Database(db_file)
-
-    # ২. PDF সেভ করার জন্য পাবলিক পাথ (Download Folder)
-    # ফোনের জন্য ডাউনলোড ফোল্ডার, পিসির জন্য বর্তমান ফোল্ডার
-    if page.platform == ft.PagePlatform.ANDROID:
-        pdf_save_path = "/storage/emulated/0/Download"
-        if not os.path.exists(pdf_save_path):
-            pdf_save_path = user_data_path
+    # ১. প্ল্যাটফর্ম অনুযায়ী পাথ ডিটেকশন
+    if page.web:
+        # Ngrok বা ব্রাউজারের জন্য assets ফোল্ডার
+        save_path = os.path.join(os.getcwd(), "assets")
     else:
-        pdf_save_path = os.getcwd()
+        # অ্যান্ড্রয়েড বা ডেস্কটপ অ্যাপের জন্য সিকিউর পাথ
+        save_path = page.user_data_dir
 
-    # সেশন স্টোরেজে পাথটি সেভ রাখা যাতে পরে পাওয়া যায়
-    page.session.set("pdf_path", pdf_save_path)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
-    # বাকি সেটিংস
+    # ২. ডাটাবেস শুরু (সঠিক পাথে)
+    db_file = os.path.join(save_path, "factory_pro.db")
+    db = Database(db_file)
+    
+    # সেশনে পাথ সেভ রাখা
+    page.session.set("save_path", save_path)
+
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.window.width = 410
@@ -246,16 +224,16 @@ def main(page: ft.Page):
                                  (cust_drop.value or "Walk-in", p_data[0], int(qty_in.value), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
                 
-                # save_path হিসেবে user_data_path যোগ করা হয়েছে
-                pdf_file = generate_pdf_invoice(
-                    cust_drop.value or "Walk-in", 
-                    p_data[0], 
-                    qty_in.value, 
-                    p_data[1], 
-                    total, 
-                    user_data_path # এই প্যারামিটারটি যোগ করুন
-                )
-                page.launch_url(f"/{pdf_file}")
+                # PDF তৈরি করা
+                current_save_path = page.session.get("save_path")
+                pdf_file = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total, current_save_path)
+                
+                # ওপেন করার লজিক
+                if page.web:
+                    page.launch_url(f"/{pdf_file}")
+                else:
+                    full_pdf_path = os.path.join(current_save_path, pdf_file)
+                    page.launch_url(f"file://{full_pdf_path}")
                 page.go("/")
 
             page.views.append(ft.View("/sales", [
@@ -289,32 +267,17 @@ def main(page: ft.Page):
                 # পাইথন ক্লোজার ফিক্স: ডিফল্ট আর্গুমেন্ট দিয়ে ডাটা ক্যাপচার করা হয়েছে
                 def reprint_invoice(e, customer=h[1], product=h[2], qty=h[3], total=h[4]):
                     price = total / qty if qty > 0 else 0
+                    current_save_path = page.session.get("save_path")
                     
-                    # save_path হিসেবে user_data_path যোগ করা হয়েছে
-                    pdf_file = generate_pdf_invoice(
-                        customer, 
-                        product, 
-                        qty, 
-                        price, 
-                        total, 
-                        user_data_path # এই প্যারামিটারটি যোগ করুন
-                    )
+                    pdf_file = generate_pdf_invoice(customer, product, qty, price, total, current_save_path)
                     
-                    # এটি অ্যান্ড্রয়েড এবং পিসি উভয়ের জন্য সবচেয়ে স্ট্যাবল
-                    try:
-                        if page.platform == ft.PagePlatform.ANDROID:
-                            # ফোনে সেভ হওয়ার পর নোটিফিকেশন দেওয়া
-                            snack_bar = ft.SnackBar(ft.Text(f"PDF saved in Downloads folder!"))
-                            page.overlay.append(snack_bar)
-                            snack_bar.open = True
-                        
+                    if page.web:
                         page.launch_url(f"/{pdf_file}")
-                    except Exception as e:
-                        print(f"Error launching PDF: {e}")
+                    else:
+                        full_pdf_path = os.path.join(current_save_path, pdf_file)
+                        page.launch_url(f"file://{full_pdf_path}")
                     
-                    # ইউজারকে জানানো
-                    # নতুন পদ্ধতি
-                    snack_bar = ft.SnackBar(ft.Text(f"Re-printing invoice for {customer}..."))
+                    snack_bar = ft.SnackBar(ft.Text(f"Invoice generated for {customer}"))
                     page.overlay.append(snack_bar)
                     snack_bar.open = True
                     page.update()
@@ -352,3 +315,4 @@ def main(page: ft.Page):
 
 # assets_dir যোগ করা হয়েছে
 ft.app(target=main, assets_dir="assets")
+
