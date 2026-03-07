@@ -7,8 +7,8 @@ from fpdf.enums import XPos, YPos
 
 # --- ড্যাটাবেস সেটআপ ---
 class Database:
-    def __init__(self):
-        self.conn = sqlite3.connect(os.path.join(os.getcwd(), "factory_pro.db"), check_same_thread=False)
+    def __init__(self, db_path):
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.create_tables()
 
@@ -20,8 +20,8 @@ class Database:
 
 
 # --- PDF ইনভয়েস জেনারেটর (Deprecation Warnings Fixed) ---
-def generate_pdf_invoice(customer, product, qty, price, total):
-    pdf = FPDF(unit="mm", format=(105, 148)) # A6 size
+def generate_pdf_invoice(customer, product, qty, price, total, save_path):
+    pdf = FPDF(unit="mm", format=(105, 148))
     pdf.add_page()
     
     # Header
@@ -57,19 +57,52 @@ def generate_pdf_invoice(customer, product, qty, price, total):
     pdf.set_font("Helvetica", 'I', 8)
     pdf.cell(0, 5, "Thank you for your business!", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
+    # ফাইলের নাম ও পাথ ফিক্সড করা
     file_name = f"invoice_{datetime.now().strftime('%H%M%S')}.pdf"
-    pdf.output(file_name)
-    return file_name
+    full_path = os.path.join(save_path, file_name)
+    pdf.output(full_path)
+    return full_path
 
 def main(page: ft.Page):
-    db = Database()
+    # ১. ডাটাবেস পাথ নির্ধারণ (Web mode ফিক্সড)
+    # getattr ব্যবহার করা হয়েছে যাতে user_data_dir না থাকলে এরর না দেয়
+    user_data_path = getattr(page, "user_data_dir", None)
+    
+    if user_data_path is None:
+        # যদি ওয়েব মোড বা Ngrok হয়, তবে বর্তমান ফোল্ডার ব্যবহার করবে
+        user_data_path = os.getcwd()
+    
+    # ফোল্ডার নিশ্চিত করা
+    if not os.path.exists(user_data_path):
+        try:
+            os.makedirs(user_data_path)
+        except:
+            pass
+
+    # ডাটাবেস ফাইল তৈরি
+    db_file = os.path.join(user_data_path, "factory_pro.db")
+    db = Database(db_file)
+
+    # ২. PDF সেভ করার জন্য পাবলিক পাথ (Download Folder)
+    # ফোনের জন্য ডাউনলোড ফোল্ডার, পিসির জন্য বর্তমান ফোল্ডার
+    if page.platform == ft.PagePlatform.ANDROID:
+        pdf_save_path = "/storage/emulated/0/Download"
+        if not os.path.exists(pdf_save_path):
+            pdf_save_path = user_data_path
+    else:
+        pdf_save_path = os.getcwd()
+
+    # সেশন স্টোরেজে পাথটি সেভ রাখা যাতে পরে পাওয়া যায়
+    page.session.set("pdf_path", pdf_save_path)
+
+    # বাকি সেটিংস
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window.width = 410
-    page.window.height = 820
+    page.window_width = 410
+    page.window_height = 820
     page.padding = 0
-
-    # --- ব্যাক বাটন লজিক (Fixed IndexError) ---
+    
+    # ... আপনার বাকি কোড ...
     def go_back(e):
         if len(page.views) > 1:
             page.views.pop()
@@ -207,8 +240,16 @@ def main(page: ft.Page):
                                  (cust_drop.value or "Walk-in", p_data[0], int(qty_in.value), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
                 
-                pdf_file = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total)
-                page.launch_url(f"file://{os.path.abspath(pdf_file)}")
+                # save_path হিসেবে user_data_path যোগ করা হয়েছে
+                pdf_file = generate_pdf_invoice(
+                    cust_drop.value or "Walk-in", 
+                    p_data[0], 
+                    qty_in.value, 
+                    p_data[1], 
+                    total, 
+                    user_data_path # এই প্যারামিটারটি যোগ করুন
+                )
+                page.launch_url(f"file://{pdf_file}")
                 page.go("/")
 
             page.views.append(ft.View("/sales", [
@@ -241,27 +282,44 @@ def main(page: ft.Page):
             for h in history:
                 # পাইথন ক্লোজার ফিক্স: ডিফল্ট আর্গুমেন্ট দিয়ে ডাটা ক্যাপচার করা হয়েছে
                 def reprint_invoice(e, customer=h[1], product=h[2], qty=h[3], total=h[4]):
-                    # ইউনিট প্রাইস বের করা (সেফটি চেকসহ)
                     price = total / qty if qty > 0 else 0
                     
-                    # পিডিএফ জেনারেট করা
-                    pdf_file = generate_pdf_invoice(customer, product, qty, price, total)
+                    # save_path হিসেবে user_data_path যোগ করা হয়েছে
+                    pdf_file = generate_pdf_invoice(
+                        customer, 
+                        product, 
+                        qty, 
+                        price, 
+                        total, 
+                        user_data_path # এই প্যারামিটারটি যোগ করুন
+                    )
                     
-                    # পিসিতে অটো ওপেন (প্রিন্টের জন্য)
-                    page.launch_url(f"file://{os.path.abspath(pdf_file)}")
+                    # এটি অ্যান্ড্রয়েড এবং পিসি উভয়ের জন্য সবচেয়ে স্ট্যাবল
+                    try:
+                        if page.platform == ft.PagePlatform.ANDROID:
+                            # ফোনে সেভ হওয়ার পর নোটিফিকেশন দেওয়া
+                            snack_bar = ft.SnackBar(ft.Text(f"PDF saved in Downloads folder!"))
+                            page.overlay.append(snack_bar)
+                            snack_bar.open = True
+                        
+                        page.launch_url(f"file://{pdf_file}")
+                    except Exception as e:
+                        print(f"Error launching PDF: {e}")
                     
                     # ইউজারকে জানানো
-                    page.snack_bar = ft.SnackBar(ft.Text(f"Re-printing invoice for {customer}..."))
-                    page.snack_bar.open = True
+                    # নতুন পদ্ধতি
+                    snack_bar = ft.SnackBar(ft.Text(f"Re-printing invoice for {customer}..."))
+                    page.overlay.append(snack_bar)
+                    snack_bar.open = True
                     page.update()
 
                 h_list.controls.append(
                     ft.Card(
                         content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.PRINT, color=ft.colors.BLUE_GREY_400),
+                            leading=ft.Icon(ft.Icons.PRINT, color=ft.Colors.BLUE_GREY_400),
                             title=ft.Text(f"{h[2]} x {h[3]}", weight="bold"),
                             subtitle=ft.Text(f"Client: {h[1]} | Date: {h[5]}"),
-                            trailing=ft.Text(f"Tk {h[4]}", weight="bold", color=ft.colors.BLUE_800),
+                            trailing=ft.Text(f"Tk {h[4]}", weight="bold", color=ft.Colors.BLUE_800),
                             on_click=reprint_invoice # এখানে টাচ করলে রি-প্রিন্ট হবে
                         )
                     )
@@ -274,7 +332,7 @@ def main(page: ft.Page):
                         ft.AppBar(
                             title=ft.Text("Sales History", weight="bold"),
                             leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back),
-                            bgcolor=ft.colors.BLUE_GREY_100
+                            bgcolor=ft.Colors.BLUE_GREY_100
                         ),
                         h_list # আপনার লিস্ট ভিউ
                     ]
