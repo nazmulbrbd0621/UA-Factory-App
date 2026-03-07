@@ -8,7 +8,7 @@ from fpdf.enums import XPos, YPos
 # --- ড্যাটাবেস সেটআপ ---
 class Database:
     def __init__(self):
-        self.conn = sqlite3.connect("factory_pro.db", check_same_thread=False)
+        self.conn = sqlite3.connect(os.path.join(os.getcwd(), "factory_pro.db"), check_same_thread=False)
         self.cursor = self.conn.cursor()
         self.create_tables()
 
@@ -18,7 +18,6 @@ class Database:
         self.cursor.execute("CREATE TABLE IF NOT EXISTS sales_log (id INTEGER PRIMARY KEY, customer_name TEXT, product_name TEXT, qty INTEGER, total REAL, date TEXT)")
         self.conn.commit()
 
-db = Database()
 
 # --- PDF ইনভয়েস জেনারেটর (Deprecation Warnings Fixed) ---
 def generate_pdf_invoice(customer, product, qty, price, total):
@@ -27,7 +26,7 @@ def generate_pdf_invoice(customer, product, qty, price, total):
     
     # Header
     pdf.set_font("Helvetica", 'B', 14)
-    pdf.cell(0, 10, "UA FACTORY PRO", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 10, "Sayem FACTORY PRO", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 5, "Sales Invoice / Money Receipt", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
@@ -63,7 +62,8 @@ def generate_pdf_invoice(customer, product, qty, price, total):
     return file_name
 
 def main(page: ft.Page):
-    page.title = "UA Factory Pro"
+    db = Database()
+    page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.window.width = 410
     page.window.height = 820
@@ -111,7 +111,7 @@ def main(page: ft.Page):
                 ft.View(
                     "/",
                     [
-                        ft.AppBar(title=ft.Text("UA Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
+                        ft.AppBar(title=ft.Text("Production Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
                         ft.Container(
                             padding=20,
                             content=ft.Column([
@@ -208,7 +208,7 @@ def main(page: ft.Page):
                 db.conn.commit()
                 
                 pdf_file = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total)
-                os.startfile(pdf_file)
+                page.launch_url(f"file://{os.path.abspath(pdf_file)}")
                 page.go("/")
 
             page.views.append(ft.View("/sales", [
@@ -248,7 +248,7 @@ def main(page: ft.Page):
                     pdf_file = generate_pdf_invoice(customer, product, qty, price, total)
                     
                     # পিসিতে অটো ওপেন (প্রিন্টের জন্য)
-                    os.startfile(pdf_file)
+                    page.launch_url(f"file://{os.path.abspath(pdf_file)}")
                     
                     # ইউজারকে জানানো
                     page.snack_bar = ft.SnackBar(ft.Text(f"Re-printing invoice for {customer}..."))
