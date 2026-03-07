@@ -59,9 +59,15 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_path):
 
     # ফাইলের নাম ও পাথ ফিক্সড করা
     file_name = f"invoice_{datetime.now().strftime('%H%M%S')}.pdf"
-    full_path = os.path.join(save_path, file_name)
-    pdf.output(full_path)
-    return full_path
+    
+    # assets ফোল্ডার না থাকলে তৈরি করা
+    if not os.path.exists("assets"):
+        os.makedirs("assets")
+        
+    # ফাইলটি assets ফোল্ডারের ভেতর সেভ করা
+    file_path = os.path.join("assets", file_name)
+    pdf.output(file_path)
+    return file_name # শুধু ফাইলের নাম রিটার্ন করুন
 
 def main(page: ft.Page):
     # ১. ডাটাবেস পাথ নির্ধারণ (Web mode ফিক্সড)
@@ -98,8 +104,8 @@ def main(page: ft.Page):
     # বাকি সেটিংস
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window_width = 410
-    page.window_height = 820
+    page.window.width = 410
+    page.window.height = 820
     page.padding = 0
     
     # ... আপনার বাকি কোড ...
@@ -249,7 +255,7 @@ def main(page: ft.Page):
                     total, 
                     user_data_path # এই প্যারামিটারটি যোগ করুন
                 )
-                page.launch_url(f"file://{pdf_file}")
+                page.launch_url(f"/{pdf_file}")
                 page.go("/")
 
             page.views.append(ft.View("/sales", [
@@ -302,7 +308,7 @@ def main(page: ft.Page):
                             page.overlay.append(snack_bar)
                             snack_bar.open = True
                         
-                        page.launch_url(f"file://{pdf_file}")
+                        page.launch_url(f"/{pdf_file}")
                     except Exception as e:
                         print(f"Error launching PDF: {e}")
                     
@@ -344,4 +350,5 @@ def main(page: ft.Page):
     page.on_view_pop = go_back
     page.go(page.route)
 
-ft.app(target=main)
+# assets_dir যোগ করা হয়েছে
+ft.app(target=main, assets_dir="assets")
