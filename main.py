@@ -5,7 +5,7 @@ from datetime import datetime
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-# --- ড্যাটাবেস সেটআপ ---
+# --- ড্যাটাবেস ম্যানেজমেন্ট ---
 class Database:
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -18,22 +18,25 @@ class Database:
         self.cursor.execute("CREATE TABLE IF NOT EXISTS sales_log (id INTEGER PRIMARY KEY, customer_name TEXT, product_name TEXT, qty INTEGER, total REAL, date TEXT)")
         self.conn.commit()
 
-
-def generate_pdf_invoice(customer, product, qty, price, total, save_path):
-    pdf = FPDF(unit="mm", format=(105, 148))
+# --- PDF ইনভয়েস জেনারেটর (Universal Path Fix) ---
+def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
+    pdf = FPDF(unit="mm", format=(105, 148)) # A6 Size
     pdf.add_page()
     
+    # Header
     pdf.set_font("Helvetica", 'B', 14)
     pdf.cell(0, 10, "Sayem FACTORY PRO", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 5, "Sales Invoice / Money Receipt", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
+    # Info
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 6, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Customer: {customer}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 5, "-"*50, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
+    # Table Content
     pdf.set_font("Helvetica", 'B', 9)
     pdf.cell(40, 8, "Product")
     pdf.cell(20, 8, "Qty")
@@ -45,6 +48,7 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_path):
     pdf.cell(25, 8, f"{total}", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
+    # Grand Total
     pdf.set_font("Helvetica", 'B', 11)
     pdf.cell(0, 10, f"Grand Total: Tk {total}", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
@@ -52,60 +56,54 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_path):
     pdf.set_font("Helvetica", 'I', 8)
     pdf.cell(0, 5, "Thank you for your business!", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
+    # ফাইলের নাম তৈরি এবং সেভ করা
     file_name = f"invoice_{datetime.now().strftime('%H%M%S')}.pdf"
+    full_path = os.path.join(save_dir, file_name)
+    pdf.output(full_path)
     
-    # --- স্মার্ট পাথ ম্যানেজমেন্ট ---
-    # সেভ করার জন্য ফুল পাথ তৈরি
-    full_save_path = os.path.join(save_path, file_name)
-    pdf.output(full_save_path)
-    
-    return file_name # শুধুমাত্র ফাইলের নাম রিটার্ন করবে
+    return file_name # শুধু ফাইলের নাম রিটার্ন করবে
 
 def main(page: ft.Page):
-    # ১. প্ল্যাটফর্ম অনুযায়ী পাথ ডিটেকশন
+    # ১. স্মার্ট পাথ ম্যানেজমেন্ট (অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ফিক্স)
     if page.web:
-        # Ngrok বা ব্রাউজারের জন্য assets ফোল্ডার
-        save_path = os.path.join(os.getcwd(), "assets")
+        # Ngrok বা ওয়েব ব্রাউজারের জন্য
+        working_dir = os.path.join(os.getcwd(), "assets")
     else:
-        # অ্যান্ড্রয়েড বা ডেস্কটপ অ্যাপের জন্য সিকিউর পাথ
-        save_path = page.user_data_dir
+        # অ্যান্ড্রয়েড APK বা ডেস্কটপ অ্যাপের জন্য সিকিউর পাথ
+        working_dir = page.user_data_dir
 
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
 
-    # ২. ডাটাবেস শুরু (সঠিক পাথে)
-    db_file = os.path.join(save_path, "factory_pro.db")
+    # ২. ডাটাবেস শুরু
+    db_file = os.path.join(working_dir, "factory_pro.db")
     db = Database(db_file)
     
-    # সেশনে পাথ সেভ রাখা
-    page.session.set("save_path", save_path)
+    page.session.set("working_dir", working_dir)
 
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.window.width = 410
     page.window.height = 820
     page.padding = 0
-    
-    # ... আপনার বাকি কোড ...
+
     def go_back(e):
         if len(page.views) > 1:
             page.views.pop()
             top_view = page.views[-1]
             page.go(top_view.route)
 
-    # --- রাউট চেঞ্জ লজিক ---
     def route_change(e):
-        # হোম পেজ হলে ভিউ ক্লিয়ার হবে, সাব পেজ হলে স্ট্যাকে অ্যাড হবে
         if page.route == "/":
             page.views.clear()
             
             db.cursor.execute("SELECT name, stock FROM products")
             products_stock = db.cursor.fetchall()
             
-            # --- ১. গ্রিড ভিউ সিস্টেম ---
+            # ড্যাশবোর্ড গ্রিড ভিউ
             stock_chips = ft.GridView(
                 expand=False,
-                runs_count=2, # ২ কলামের গ্রিড
+                runs_count=2,
                 max_extent=200,
                 child_aspect_ratio=2.0,
                 spacing=10,
@@ -128,15 +126,15 @@ def main(page: ft.Page):
                 ft.View(
                     "/",
                     [
-                        ft.AppBar(title=ft.Text("Production Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
+                        ft.AppBar(title=ft.Text("UA Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
                         ft.Container(
                             padding=20,
                             content=ft.Column([
-                                ft.Text("Live Inventory Status", size=16, weight="bold", color=ft.Colors.BLUE_GREY_700),
+                                ft.Text("Live Stock Status", size=16, weight="bold", color=ft.Colors.BLUE_GREY_700),
                                 stock_chips,
                                 ft.Divider(height=30),
                                 ft.Row([
-                                    ft.ElevatedButton("Stock", icon=ft.Icons.STORAGE, on_click=lambda _: page.go("/inventory"), expand=True, height=50),
+                                    ft.ElevatedButton("Inventory", icon=ft.Icons.STORAGE, on_click=lambda _: page.go("/inventory"), expand=True, height=50),
                                     ft.ElevatedButton("Sale", icon=ft.Icons.POINT_OF_SALE, on_click=lambda _: page.go("/sales"), expand=True, height=50, bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE),
                                 ]),
                                 ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.ADD_TASK, color=ft.Colors.BLUE), title=ft.Text("Add Production"), on_click=lambda _: page.go("/add_production"))),
@@ -148,30 +146,14 @@ def main(page: ft.Page):
                 )
             )
 
-        # --- ২. ইনভেন্টরি পেজ ---
         elif page.route == "/inventory":
             db.cursor.execute("SELECT * FROM products")
-            products = db.cursor.fetchall()
-            list_view = ft.ListView(expand=1, spacing=10, padding=20)
-            for p in products:
-                list_view.controls.append(
-                    ft.Container(
-                        padding=15, bgcolor=ft.Colors.BLUE_GREY_50, border_radius=10,
-                        content=ft.Row([
-                            ft.Column([ft.Text(p[1], weight="bold", size=16), ft.Text(f"Price: Tk {p[3]}", size=12)], expand=True),
-                            ft.Text(f"{p[2]} Pcs", weight="bold", color=ft.Colors.BLUE_700)
-                        ])
-                    )
-                )
-            page.views.append(
-                ft.View("/inventory", [
-                    ft.AppBar(title=ft.Text("Stock Management"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)),
-                    list_view,
-                    ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=lambda _: page.go("/add_product_type"), bgcolor=ft.Colors.BLUE_700, foreground_color=ft.Colors.WHITE)
-                ])
-            )
+            prods = db.cursor.fetchall()
+            lv = ft.ListView(expand=1, spacing=10, padding=20)
+            for p in prods:
+                lv.controls.append(ft.Container(padding=15, bgcolor=ft.Colors.BLUE_GREY_50, border_radius=10, content=ft.Row([ft.Column([ft.Text(p[1], weight="bold", size=16), ft.Text(f"Price: Tk {p[3]}", size=12)], expand=True), ft.Text(f"{p[2]} Pcs", weight="bold", color=ft.Colors.BLUE_700)])))
+            page.views.append(ft.View("/inventory", [ft.AppBar(title=ft.Text("Stock Management"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), lv, ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=lambda _: page.go("/add_product_type"), bgcolor=ft.Colors.BLUE_700, foreground_color=ft.Colors.WHITE)]))
 
-        # --- ৩. নতুন প্রোডাক্ট টাইপ যোগ করা ---
         elif page.route == "/add_product_type":
             name_in = ft.TextField(label="Product Name")
             price_in = ft.TextField(label="Selling Price", keyboard_type=ft.KeyboardType.NUMBER)
@@ -179,13 +161,9 @@ def main(page: ft.Page):
                 if name_in.value and price_in.value:
                     db.cursor.execute("INSERT INTO products (name, stock, price) VALUES (?, ?, ?)", (name_in.value, 0, float(price_in.value)))
                     db.conn.commit()
-                    page.go("/") # সরাসরি হোমে ফিরে রিফ্রেশ করা
-            page.views.append(ft.View("/add_product_type", [
-                ft.AppBar(title=ft.Text("New Product"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)),
-                ft.Container(padding=30, content=ft.Column([name_in, price_in, ft.ElevatedButton("Save", on_click=save_p, width=400)]))
-            ]))
+                    page.go("/")
+            page.views.append(ft.View("/add_product_type", [ft.AppBar(title=ft.Text("New Product"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([name_in, price_in, ft.ElevatedButton("Save", on_click=save_p, width=400)]))]))
 
-        # --- ৪. উৎপাদন এন্ট্রি ---
         elif page.route == "/add_production":
             db.cursor.execute("SELECT id, name FROM products")
             prods = db.cursor.fetchall()
@@ -196,12 +174,8 @@ def main(page: ft.Page):
                     db.cursor.execute("UPDATE products SET stock = stock + ? WHERE id = ?", (int(qty_in.value), int(prod_drop.value)))
                     db.conn.commit()
                     page.go("/")
-            page.views.append(ft.View("/add_production", [
-                ft.AppBar(title=ft.Text("Production"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)),
-                ft.Container(padding=30, content=ft.Column([prod_drop, qty_in, ft.ElevatedButton("Update Stock", on_click=update_prod, width=400)]))
-            ]))
+            page.views.append(ft.View("/add_production", [ft.AppBar(title=ft.Text("Production"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([prod_drop, qty_in, ft.ElevatedButton("Update Stock", on_click=update_prod, width=400)]))]))
 
-        # --- ৫. সেলস ও ইনভয়েস ---
         elif page.route == "/sales":
             db.cursor.execute("SELECT name FROM customers")
             custs = db.cursor.fetchall()
@@ -224,24 +198,18 @@ def main(page: ft.Page):
                                  (cust_drop.value or "Walk-in", p_data[0], int(qty_in.value), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
                 
-                # PDF তৈরি করা
-                current_save_path = page.session.get("save_path")
-                pdf_file = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total, current_save_path)
+                # পিডিএফ জেনারেট ও লঞ্চ
+                w_dir = page.session.get("working_dir")
+                pdf_name = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total, w_dir)
                 
-                # ওপেন করার লজিক
                 if page.web:
-                    page.launch_url(f"/{pdf_file}")
+                    page.launch_url(f"/{pdf_name}")
                 else:
-                    full_pdf_path = os.path.join(current_save_path, pdf_file)
-                    page.launch_url(f"file://{full_pdf_path}")
+                    page.launch_url(f"file://{os.path.join(w_dir, pdf_name)}")
                 page.go("/")
 
-            page.views.append(ft.View("/sales", [
-                ft.AppBar(title=ft.Text("New Sale"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)),
-                ft.Container(padding=30, content=ft.Column([cust_drop, prod_drop, qty_in, ft.ElevatedButton("Print Invoice", icon=ft.Icons.PRINT, on_click=make_invoice, width=400)]))
-            ]))
+            page.views.append(ft.View("/sales", [ft.AppBar(title=ft.Text("New Sale"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([cust_drop, prod_drop, qty_in, ft.ElevatedButton("Print Invoice", icon=ft.Icons.PRINT, on_click=make_invoice, width=400)]))]))
 
-        # --- কাস্টমার ও ইতিহাস ---
         elif page.route == "/customers":
             name_in = ft.TextField(label="Name")
             phone_in = ft.TextField(label="Phone")
@@ -250,69 +218,34 @@ def main(page: ft.Page):
                     db.cursor.execute("INSERT INTO customers (name, phone) VALUES (?, ?)", (name_in.value, phone_in.value))
                     db.conn.commit()
                     page.go("/")
-            page.views.append(ft.View("/customers", [
-                ft.AppBar(title=ft.Text("Manage Customers"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)),
-                ft.Container(padding=30, content=ft.Column([name_in, phone_in, ft.ElevatedButton("Save", on_click=save_c)]))
-            ]))
+            page.views.append(ft.View("/customers", [ft.AppBar(title=ft.Text("Manage Customers"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([name_in, phone_in, ft.ElevatedButton("Save", on_click=save_c)]))]))
 
-        # --- ইতিহাস (History) সেকশন ---
         elif page.route == "/history":
             db.cursor.execute("SELECT id, customer_name, product_name, qty, total, date FROM sales_log ORDER BY id DESC")
             history = db.cursor.fetchall()
-            
-            # নিশ্চিত করুন h_list লুপের আগে ডিফাইন করা আছে এবং expand=True দেওয়া আছে
             h_list = ft.ListView(expand=True, spacing=10, padding=20)
-            
             for h in history:
-                # পাইথন ক্লোজার ফিক্স: ডিফল্ট আর্গুমেন্ট দিয়ে ডাটা ক্যাপচার করা হয়েছে
                 def reprint_invoice(e, customer=h[1], product=h[2], qty=h[3], total=h[4]):
                     price = total / qty if qty > 0 else 0
-                    current_save_path = page.session.get("save_path")
-                    
-                    pdf_file = generate_pdf_invoice(customer, product, qty, price, total, current_save_path)
-                    
+                    w_dir = page.session.get("working_dir")
+                    pdf_name = generate_pdf_invoice(customer, product, qty, price, total, w_dir)
                     if page.web:
-                        page.launch_url(f"/{pdf_file}")
+                        page.launch_url(f"/{pdf_name}")
                     else:
-                        full_pdf_path = os.path.join(current_save_path, pdf_file)
-                        page.launch_url(f"file://{full_pdf_path}")
-                    
-                    snack_bar = ft.SnackBar(ft.Text(f"Invoice generated for {customer}"))
-                    page.overlay.append(snack_bar)
-                    snack_bar.open = True
+                        page.launch_url(f"file://{os.path.join(w_dir, pdf_name)}")
+                    snack = ft.SnackBar(ft.Text(f"Invoice generated for {customer}"))
+                    page.overlay.append(snack)
+                    snack.open = True
                     page.update()
 
-                h_list.controls.append(
-                    ft.Card(
-                        content=ft.ListTile(
-                            leading=ft.Icon(ft.Icons.PRINT, color=ft.Colors.BLUE_GREY_400),
-                            title=ft.Text(f"{h[2]} x {h[3]}", weight="bold"),
-                            subtitle=ft.Text(f"Client: {h[1]} | Date: {h[5]}"),
-                            trailing=ft.Text(f"Tk {h[4]}", weight="bold", color=ft.Colors.BLUE_800),
-                            on_click=reprint_invoice # এখানে টাচ করলে রি-প্রিন্ট হবে
-                        )
-                    )
-                )
-            
-            page.views.append(
-                ft.View(
-                    "/history",
-                    [
-                        ft.AppBar(
-                            title=ft.Text("Sales History", weight="bold"),
-                            leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back),
-                            bgcolor=ft.Colors.BLUE_GREY_100
-                        ),
-                        h_list # আপনার লিস্ট ভিউ
-                    ]
-                )
-            )
+                h_list.controls.append(ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.PRINT, color=ft.Colors.BLUE_GREY_400), title=ft.Text(f"{h[2]} x {h[3]}", weight="bold"), subtitle=ft.Text(f"Client: {h[1]} | Date: {h[5]}"), trailing=ft.Text(f"Tk {h[4]}", weight="bold", color=ft.Colors.BLUE_800), on_click=reprint_invoice)))
+            page.views.append(ft.View("/history", [ft.AppBar(title=ft.Text("Sales History", weight="bold"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back), bgcolor=ft.Colors.BLUE_GREY_100), h_list]))
+
         page.update()
 
     page.on_route_change = route_change
     page.on_view_pop = go_back
     page.go(page.route)
 
-# assets_dir যোগ করা হয়েছে
+# assets_dir সেট করা থাকতে হবে ওয়েব/Ngrok এর জন্য
 ft.app(target=main, assets_dir="assets")
-
