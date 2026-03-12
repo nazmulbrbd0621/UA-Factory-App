@@ -58,31 +58,30 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
     return file_name
 
 def main(page: ft.Page):
-    # --- অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ও 'user_data_dir' এরর ফিক্স ---
+    # --- অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ও সেশন এরর ফিক্স ---
     try:
-        # getattr ব্যবহার করা হয়েছে যাতে user_data_dir না থাকলে ক্র্যাশ না করে
+        # getattr ব্যবহার করা হয়েছে যাতে ব্রাউজারে user_data_dir না থাকলে ক্র্যাশ না করে
         u_dir = getattr(page, "user_data_dir", None)
         
         if page.web:
-            # Ngrok বা ব্রাউজারের জন্য পাথ
             working_dir = os.path.join(os.getcwd(), "assets")
         elif u_dir:
-            # অ্যান্ড্রয়েড APK বা ডেস্কটপ অ্যাপের জন্য
             working_dir = u_dir
         else:
-            # যদি কোনো পাথ না পাওয়া যায় (Fallback)
             working_dir = os.getcwd()
 
         if not os.path.exists(working_dir):
             os.makedirs(working_dir, exist_ok=True)
             
-        # ডাটাবেস শুরু (নতুন ফাইলে ডাটা রাখা নিরাপদ)
+        # ডাটাবেস শুরু
         db_file = os.path.join(working_dir, "factory_pro_final.db")
         db = Database(db_file)
-        page.session.set("working_dir", working_dir)
+        
+        # নতুন পদ্ধতি: ডিকশনারি স্টাইলে সেশন সেট করা
+        page.session["working_dir"] = working_dir
         
     except Exception as e:
-        page.add(ft.Text(f"Path Error: {e}", color="red"))
+        page.add(ft.Text(f"Initialization Error: {e}", color="red"))
         return
 
     page.title = "Sayem Factory Pro"
@@ -178,7 +177,7 @@ def main(page: ft.Page):
                                  (cust_drop.value or "Walk-in", p_data[0], int(qty_in.value), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
                 
-                w_dir = page.session.get("working_dir")
+                w_dir = page.session["working_dir"]
                 pdf_name = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total, w_dir)
                 
                 # অ্যান্ড্রয়েড এবং ওয়েব লঞ্চ ফিক্স
@@ -197,7 +196,8 @@ def main(page: ft.Page):
             for h in history:
                 def reprint_invoice(e, customer=h[1], product=h[2], qty=h[3], total=h[4]):
                     price = total / qty if qty > 0 else 0
-                    w_dir = page.session.get("working_dir")
+                    # নতুন পদ্ধতি: ডিকশনারি স্টাইলে সেশন থেকে ডাটা নেওয়া
+                    w_dir = page.session["working_dir"]
                     pdf_name = generate_pdf_invoice(customer, product, qty, price, total, w_dir)
                     if page.web:
                         page.launch_url(f"/{pdf_name}")
@@ -219,4 +219,5 @@ def main(page: ft.Page):
 
 # assets_dir শুধুমাত্র পিসিতে লোকাল টেস্টিং এর জন্য
 ft.app(target=main, assets_dir="assets")
+
 
