@@ -18,25 +18,22 @@ class Database:
         self.cursor.execute("CREATE TABLE IF NOT EXISTS sales_log (id INTEGER PRIMARY KEY, customer_name TEXT, product_name TEXT, qty INTEGER, total REAL, date TEXT)")
         self.conn.commit()
 
-# --- PDF ইনভয়েস জেনারেটর (Universal Path Fix) ---
+# --- PDF ইনভয়েস জেনারেটর (Android Safe Path) ---
 def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
-    pdf = FPDF(unit="mm", format=(105, 148)) # A6 Size
+    pdf = FPDF(unit="mm", format=(105, 148))
     pdf.add_page()
     
-    # Header
     pdf.set_font("Helvetica", 'B', 14)
     pdf.cell(0, 10, "Sayem FACTORY PRO", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 5, "Sales Invoice / Money Receipt", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
-    # Info
     pdf.set_font("Helvetica", size=9)
     pdf.cell(0, 6, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Customer: {customer}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 5, "-"*50, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
-    # Table Content
     pdf.set_font("Helvetica", 'B', 9)
     pdf.cell(40, 8, "Product")
     pdf.cell(20, 8, "Qty")
@@ -48,7 +45,6 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
     pdf.cell(25, 8, f"{total}", align='R', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(5)
     
-    # Grand Total
     pdf.set_font("Helvetica", 'B', 11)
     pdf.cell(0, 10, f"Grand Total: Tk {total}", border=1, align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     
@@ -56,30 +52,32 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
     pdf.set_font("Helvetica", 'I', 8)
     pdf.cell(0, 5, "Thank you for your business!", align='C', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # ফাইলের নাম তৈরি এবং সেভ করা
     file_name = f"invoice_{datetime.now().strftime('%H%M%S')}.pdf"
     full_path = os.path.join(save_dir, file_name)
     pdf.output(full_path)
-    
-    return file_name # শুধু ফাইলের নাম রিটার্ন করবে
+    return file_name
 
 def main(page: ft.Page):
-    # ১. স্মার্ট পাথ ম্যানেজমেন্ট (অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ফিক্স)
-    if page.web:
-        # Ngrok বা ওয়েব ব্রাউজারের জন্য
-        working_dir = os.path.join(os.getcwd(), "assets")
-    else:
-        # অ্যান্ড্রয়েড APK বা ডেস্কটপ অ্যাপের জন্য সিকিউর পাথ
-        working_dir = page.user_data_dir
+    # --- অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ফিক্স লজিক ---
+    try:
+        # অ্যান্ড্রয়েডে 'user_data_dir' ব্যবহার করা বাধ্যতামূলক যা ১০০% পারমিশন দেয়
+        working_dir = page.user_data_dir if page.user_data_dir else os.getcwd()
+        
+        # যদি ব্রাউজারে (Ngrok) চলে, তবে assets ফোল্ডার ব্যবহার করবে
+        if page.web:
+            working_dir = os.path.join(os.getcwd(), "assets")
 
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    # ২. ডাটাবেস শুরু
-    db_file = os.path.join(working_dir, "factory_pro.db")
-    db = Database(db_file)
-    
-    page.session.set("working_dir", working_dir)
+        if not os.path.exists(working_dir):
+            os.makedirs(working_dir, exist_ok=True)
+            
+        db_file = os.path.join(working_dir, "factory_pro_v2.db")
+        db = Database(db_file)
+        page.session.set("working_dir", working_dir)
+        
+    except Exception as e:
+        # এরর হলে স্ক্রিনে দেখাবে যাতে আপনি বুঝতে পারেন কী সমস্যা
+        page.add(ft.Text(f"Startup Error: {e}", color="red"))
+        return
 
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -96,55 +94,31 @@ def main(page: ft.Page):
     def route_change(e):
         if page.route == "/":
             page.views.clear()
-            
             db.cursor.execute("SELECT name, stock FROM products")
             products_stock = db.cursor.fetchall()
             
-            # ড্যাশবোর্ড গ্রিড ভিউ
-            stock_chips = ft.GridView(
-                expand=False,
-                runs_count=2,
-                max_extent=200,
-                child_aspect_ratio=2.0,
-                spacing=10,
-                run_spacing=10,
-            )
+            stock_chips = ft.GridView(expand=False, runs_count=2, max_extent=200, child_aspect_ratio=2.0, spacing=10, run_spacing=10)
             for ps in products_stock:
                 color = ft.Colors.GREEN_400 if ps[1] > 20 else ft.Colors.RED_400
                 stock_chips.controls.append(
-                    ft.Container(
-                        padding=10, border_radius=12, bgcolor=ft.Colors.BLUE_GREY_50,
-                        border=ft.border.all(1, ft.Colors.BLUE_GREY_100),
-                        content=ft.Column([
-                            ft.Text(ps[0], size=13, weight="bold", no_wrap=True),
-                            ft.Text(f"{ps[1]} Pcs", size=16, color=color, weight="bold")
-                        ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    )
+                    ft.Container(padding=10, border_radius=12, bgcolor=ft.Colors.BLUE_GREY_50, border=ft.border.all(1, ft.Colors.BLUE_GREY_100),
+                        content=ft.Column([ft.Text(ps[0], size=13, weight="bold", no_wrap=True), ft.Text(f"{ps[1]} Pcs", size=16, color=color, weight="bold")], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER))
                 )
 
-            page.views.append(
-                ft.View(
-                    "/",
-                    [
-                        ft.AppBar(title=ft.Text("UA Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
-                        ft.Container(
-                            padding=20,
-                            content=ft.Column([
-                                ft.Text("Live Stock Status", size=16, weight="bold", color=ft.Colors.BLUE_GREY_700),
-                                stock_chips,
-                                ft.Divider(height=30),
-                                ft.Row([
-                                    ft.ElevatedButton("Inventory", icon=ft.Icons.STORAGE, on_click=lambda _: page.go("/inventory"), expand=True, height=50),
-                                    ft.ElevatedButton("Sale", icon=ft.Icons.POINT_OF_SALE, on_click=lambda _: page.go("/sales"), expand=True, height=50, bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE),
-                                ]),
-                                ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.ADD_TASK, color=ft.Colors.BLUE), title=ft.Text("Add Production"), on_click=lambda _: page.go("/add_production"))),
-                                ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.PEOPLE, color=ft.Colors.ORANGE), title=ft.Text("Customers"), on_click=lambda _: page.go("/customers"))),
-                                ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.HISTORY, color=ft.Colors.BLUE_GREY), title=ft.Text("Sales Logs"), on_click=lambda _: page.go("/history"))),
-                            ], spacing=15, scroll=ft.ScrollMode.ALWAYS)
-                        ),
-                    ]
-                )
-            )
+            page.views.append(ft.View("/", [
+                ft.AppBar(title=ft.Text("UA Dashboard", weight="bold"), bgcolor=ft.Colors.BLUE_800, color=ft.Colors.WHITE, center_title=True),
+                ft.Container(padding=20, content=ft.Column([
+                    ft.Text("Live Stock Status", size=16, weight="bold", color=ft.Colors.BLUE_GREY_700),
+                    stock_chips, ft.Divider(height=30),
+                    ft.Row([
+                        ft.ElevatedButton("Stock", icon=ft.Icons.STORAGE, on_click=lambda _: page.go("/inventory"), expand=True, height=50),
+                        ft.ElevatedButton("Sale", icon=ft.Icons.POINT_OF_SALE, on_click=lambda _: page.go("/sales"), expand=True, height=50, bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE),
+                    ]),
+                    ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.ADD_TASK, color=ft.Colors.BLUE), title=ft.Text("Add Production"), on_click=lambda _: page.go("/add_production"))),
+                    ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.PEOPLE, color=ft.Colors.ORANGE), title=ft.Text("Customers"), on_click=lambda _: page.go("/customers"))),
+                    ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.HISTORY, color=ft.Colors.BLUE_GREY), title=ft.Text("Sales Logs"), on_click=lambda _: page.go("/history"))),
+                ], spacing=15, scroll=ft.ScrollMode.ALWAYS))
+            ]))
 
         elif page.route == "/inventory":
             db.cursor.execute("SELECT * FROM products")
@@ -182,7 +156,7 @@ def main(page: ft.Page):
             db.cursor.execute("SELECT id, name, price, stock FROM products")
             prods = db.cursor.fetchall()
             cust_drop = ft.Dropdown(label="Customer", options=[ft.dropdown.Option(text=c[0]) for c in custs])
-            prod_drop = ft.Dropdown(label="Product", options=[ft.dropdown.Option(key=str(p[0]), text=f"{p[1]} (Stock: {p[3]})") for p in prods])
+            prod_drop = ft.Dropdown(label="Select Product", options=[ft.dropdown.Option(key=str(p[0]), text=f"{p[1]} (Stock: {p[3]})") for p in prods])
             qty_in = ft.TextField(label="Quantity", value="1")
 
             def make_invoice(e):
@@ -198,10 +172,10 @@ def main(page: ft.Page):
                                  (cust_drop.value or "Walk-in", p_data[0], int(qty_in.value), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
                 
-                # পিডিএফ জেনারেট ও লঞ্চ
                 w_dir = page.session.get("working_dir")
                 pdf_name = generate_pdf_invoice(cust_drop.value or "Walk-in", p_data[0], qty_in.value, p_data[1], total, w_dir)
                 
+                # অ্যান্ড্রয়েড এবং ওয়েব লঞ্চ ফিক্স
                 if page.web:
                     page.launch_url(f"/{pdf_name}")
                 else:
@@ -209,16 +183,6 @@ def main(page: ft.Page):
                 page.go("/")
 
             page.views.append(ft.View("/sales", [ft.AppBar(title=ft.Text("New Sale"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([cust_drop, prod_drop, qty_in, ft.ElevatedButton("Print Invoice", icon=ft.Icons.PRINT, on_click=make_invoice, width=400)]))]))
-
-        elif page.route == "/customers":
-            name_in = ft.TextField(label="Name")
-            phone_in = ft.TextField(label="Phone")
-            def save_c(e):
-                if name_in.value:
-                    db.cursor.execute("INSERT INTO customers (name, phone) VALUES (?, ?)", (name_in.value, phone_in.value))
-                    db.conn.commit()
-                    page.go("/")
-            page.views.append(ft.View("/customers", [ft.AppBar(title=ft.Text("Manage Customers"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back)), ft.Container(padding=30, content=ft.Column([name_in, phone_in, ft.ElevatedButton("Save", on_click=save_c)]))]))
 
         elif page.route == "/history":
             db.cursor.execute("SELECT id, customer_name, product_name, qty, total, date FROM sales_log ORDER BY id DESC")
@@ -233,19 +197,19 @@ def main(page: ft.Page):
                         page.launch_url(f"/{pdf_name}")
                     else:
                         page.launch_url(f"file://{os.path.join(w_dir, pdf_name)}")
-                    snack = ft.SnackBar(ft.Text(f"Invoice generated for {customer}"))
+                    
+                    snack = ft.SnackBar(ft.Text("PDF Generated! Check Downloads."))
                     page.overlay.append(snack)
                     snack.open = True
                     page.update()
 
                 h_list.controls.append(ft.Card(content=ft.ListTile(leading=ft.Icon(ft.Icons.PRINT, color=ft.Colors.BLUE_GREY_400), title=ft.Text(f"{h[2]} x {h[3]}", weight="bold"), subtitle=ft.Text(f"Client: {h[1]} | Date: {h[5]}"), trailing=ft.Text(f"Tk {h[4]}", weight="bold", color=ft.Colors.BLUE_800), on_click=reprint_invoice)))
-            page.views.append(ft.View("/history", [ft.AppBar(title=ft.Text("Sales History", weight="bold"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back), bgcolor=ft.Colors.BLUE_GREY_100), h_list]))
-
+            page.views.append(ft.View("/history", [ft.AppBar(title=ft.Text("Sales History"), leading=ft.IconButton(ft.Icons.ARROW_BACK, on_click=go_back), bgcolor=ft.Colors.BLUE_GREY_100), h_list]))
         page.update()
 
     page.on_route_change = route_change
     page.on_view_pop = go_back
     page.go(page.route)
 
-# assets_dir সেট করা থাকতে হবে ওয়েব/Ngrok এর জন্য
+# assets_dir শুধুমাত্র পিসিতে লোকাল টেস্টিং এর জন্য
 ft.app(target=main, assets_dir="assets")
