@@ -58,31 +58,37 @@ def generate_pdf_invoice(customer, product, qty, price, total, save_dir):
     return file_name
 
 def main(page: ft.Page):
-    # --- অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ফিক্স লজিক ---
+    # --- অ্যান্ড্রয়েড ব্ল্যাক স্ক্রিন ও 'user_data_dir' এরর ফিক্স ---
     try:
-        # অ্যান্ড্রয়েডে 'user_data_dir' ব্যবহার করা বাধ্যতামূলক যা ১০০% পারমিশন দেয়
-        working_dir = page.user_data_dir if page.user_data_dir else os.getcwd()
+        # getattr ব্যবহার করা হয়েছে যাতে user_data_dir না থাকলে ক্র্যাশ না করে
+        u_dir = getattr(page, "user_data_dir", None)
         
-        # যদি ব্রাউজারে (Ngrok) চলে, তবে assets ফোল্ডার ব্যবহার করবে
         if page.web:
+            # Ngrok বা ব্রাউজারের জন্য পাথ
             working_dir = os.path.join(os.getcwd(), "assets")
+        elif u_dir:
+            # অ্যান্ড্রয়েড APK বা ডেস্কটপ অ্যাপের জন্য
+            working_dir = u_dir
+        else:
+            # যদি কোনো পাথ না পাওয়া যায় (Fallback)
+            working_dir = os.getcwd()
 
         if not os.path.exists(working_dir):
             os.makedirs(working_dir, exist_ok=True)
             
-        db_file = os.path.join(working_dir, "factory_pro_v2.db")
+        # ডাটাবেস শুরু (নতুন ফাইলে ডাটা রাখা নিরাপদ)
+        db_file = os.path.join(working_dir, "factory_pro_final.db")
         db = Database(db_file)
         page.session.set("working_dir", working_dir)
         
     except Exception as e:
-        # এরর হলে স্ক্রিনে দেখাবে যাতে আপনি বুঝতে পারেন কী সমস্যা
-        page.add(ft.Text(f"Startup Error: {e}", color="red"))
+        page.add(ft.Text(f"Path Error: {e}", color="red"))
         return
 
     page.title = "Sayem Factory Pro"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window.width = 410
-    page.window.height = 820
+    page.window_width = 410
+    page.window_height = 820
     page.padding = 0
 
     def go_back(e):
@@ -213,3 +219,4 @@ def main(page: ft.Page):
 
 # assets_dir শুধুমাত্র পিসিতে লোকাল টেস্টিং এর জন্য
 ft.app(target=main, assets_dir="assets")
+
