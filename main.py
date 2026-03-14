@@ -3,7 +3,7 @@ import sqlite3
 import os
 from datetime import datetime
 
-# --- ড্যাটাবেস ক্লাস ---
+# --- ড্যাটাবেস ম্যানেজমেন্ট (সবচেয়ে সেফ পদ্ধতি) ---
 class Database:
     def __init__(self, db_path):
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -14,71 +14,58 @@ class Database:
         self.conn.commit()
 
 def main(page: ft.Page):
-    # ১. সুপার সেফ পাথ লজিক (যা আর এরর দিবে না)
+    page.title = "UA Factory Pro"
+    page.theme_mode = ft.ThemeMode.LIGHT
+    
+    # অ্যান্ড্রয়েডের জন্য ফেইল-সেফ পাথ লজিক
     try:
-        # যদি user_data_dir থাকে তবে সেটি নিবে, না থাকলে ওএস অনুযায়ী পাথ সেট করবে
-        working_dir = getattr(page, "user_data_dir", None)
-        if not working_dir:
-            if os.name == 'nt':
-                working_dir = os.path.join(os.getcwd(), "data")
-            else:
-                working_dir = os.path.expanduser("~") # Android Safe Fallback
-
-        if not os.path.exists(working_dir):
-            os.makedirs(working_dir, exist_ok=True)
+        # getattr ব্যবহার করা হয়েছে যাতে পুরানো ভার্সনেও ক্রাশ না করে
+        u_dir = getattr(page, "user_data_dir", None)
+        if not u_dir:
+            u_dir = os.path.expanduser("~") # Android Safe Fallback
             
-        db_file = os.path.join(working_dir, "factory_v10.db")
+        if not os.path.exists(u_dir):
+            os.makedirs(u_dir, exist_ok=True)
+            
+        db_file = os.path.join(u_dir, "factory_v101.db")
         db = Database(db_file)
     except Exception as e:
-        page.add(ft.Text(f"Critical Startup Error: {e}", color="red", size=20))
+        page.add(ft.Text(f"Startup Error: {e}", color="red", size=20))
         page.update()
         return
 
-    page.title = "UA Factory Pro"
-    page.theme_mode = ft.ThemeMode.LIGHT
-
-    # --- নেভিগেশন ---
     def go_back(e):
         if len(page.views) > 1:
             page.views.pop()
             page.go(page.views[-1].route)
 
-    # --- পেজ ভিউ লজিক ---
     def route_change(e):
         page.views.clear()
         
-        # ১. ড্যাশবোর্ড
+        # --- ড্যাশবোর্ড (Home) ---
         if page.route == "/":
             db.cursor.execute("SELECT name, stock FROM products")
             rows = db.cursor.fetchall()
-            
             grid = ft.GridView(expand=False, runs_count=2, child_aspect_ratio=2.2, spacing=10)
             for r in rows:
-                c = ft.colors.GREEN_400 if r[1] > 15 else ft.colors.RED_400
-                grid.controls.append(
-                    ft.Container(padding=10, border_radius=10, bgcolor=ft.colors.BLUE_GREY_50,
-                        content=ft.Column([
-                            ft.Text(r[0], size=12, weight="bold", no_wrap=True),
-                            ft.Text(f"{r[1]} Pcs", size=15, color=c, weight="bold")
-                        ], horizontal_alignment="center"))
-                )
+                c = ft.colors.GREEN_400 if r[1] > 10 else ft.colors.RED_400
+                grid.controls.append(ft.Container(padding=10, border_radius=10, bgcolor=ft.colors.BLUE_GREY_50,
+                    content=ft.Column([ft.Text(r[0], size=12, weight="bold"), ft.Text(f"{r[1]} Pcs", size=15, color=c, weight="bold")], horizontal_alignment="center")))
 
             page.views.append(ft.View("/", [
-                ft.AppBar(title=ft.Text("Sayem Factory"), bgcolor=ft.colors.BLUE_800, color="white"),
+                ft.AppBar(title=ft.Text("UA Factory Dashboard"), bgcolor=ft.colors.BLUE_800, color="white"),
                 ft.Container(padding=15, content=ft.Column([
-                    ft.Text("Inventory Status", size=18, weight="bold"),
-                    grid,
-                    ft.Divider(),
+                    ft.Text("Live Inventory Status", size=18, weight="bold"),
+                    grid, ft.Divider(),
                     ft.Row([
                         ft.ElevatedButton("Stock", icon=ft.icons.STORAGE, on_click=lambda _: page.go("/inventory"), expand=True),
-                        ft.ElevatedButton("New Sale", icon=ft.icons.SHOPPING_CART, on_click=lambda _: page.go("/sales"), expand=True, bgcolor=ft.colors.GREEN_700, color="white"),
+                        ft.ElevatedButton("Sale", icon=ft.icons.SHOPPING_CART, on_click=lambda _: page.go("/sales"), expand=True, bgcolor=ft.colors.GREEN_700, color="white"),
                     ]),
-                    ft.ListTile(leading=ft.Icon(ft.icons.PEOPLE), title=ft.Text("Manage Customers"), on_click=lambda _: page.go("/customers")),
                     ft.ListTile(leading=ft.Icon(ft.icons.HISTORY), title=ft.Text("Sales Logs"), on_click=lambda _: page.go("/history")),
                 ], spacing=15, scroll="always"))
             ]))
 
-        # ২. ইনভেন্টরি
+        # --- ইনভেন্টরি পেজ ---
         elif page.route == "/inventory":
             db.cursor.execute("SELECT * FROM products")
             prods = db.cursor.fetchall()
@@ -91,10 +78,10 @@ def main(page: ft.Page):
                 ft.FloatingActionButton(icon=ft.icons.ADD, on_click=lambda _: page.go("/add_product"))
             ]))
 
-        # ৩. নতুন প্রোডাক্ট
+        # --- নতুন প্রোডাক্ট যোগ ---
         elif page.route == "/add_product":
-            name_in = ft.TextField(label="Name")
-            price_in = ft.TextField(label="Price", keyboard_type="number")
+            name_in = ft.TextField(label="Product Name")
+            price_in = ft.TextField(label="Selling Price", keyboard_type="number")
             def save(e):
                 if name_in.value:
                     db.cursor.execute("INSERT INTO products (name, stock, price) VALUES (?, ?, ?)", (name_in.value, 0, float(price_in.value or 0)))
@@ -105,13 +92,13 @@ def main(page: ft.Page):
                 ft.Container(padding=20, content=ft.Column([name_in, price_in, ft.ElevatedButton("Save", on_click=save, width=400)]))
             ]))
 
-        # ৪. সেলস
+        # --- সেলস পেজ ---
         elif page.route == "/sales":
             db.cursor.execute("SELECT id, name, price, stock FROM products")
             items = db.cursor.fetchall()
-            drop = ft.Dropdown(label="Item", options=[ft.dropdown.Option(key=str(i[0]), text=f"{i[1]} ({i[3]})") for i in items])
-            qty = ft.TextField(label="Qty", value="1", keyboard_type="number")
-            def sell(e):
+            drop = ft.Dropdown(label="Select Item", options=[ft.dropdown.Option(key=str(i[0]), text=f"{i[1]} ({i[3]})") for i in items])
+            qty = ft.TextField(label="Quantity", value="1", keyboard_type="number")
+            def confirm_sale(e):
                 if not drop.value: return
                 db.cursor.execute("SELECT name, price FROM products WHERE id=?", (drop.value,))
                 res = db.cursor.fetchone()
@@ -120,14 +107,14 @@ def main(page: ft.Page):
                 db.cursor.execute("INSERT INTO sales_log (customer_name, product_name, qty, total, date) VALUES (?, ?, ?, ?, ?)",
                                  ("Walk-in", res[0], int(qty.value or 1), total, datetime.now().strftime("%Y-%m-%d %H:%M")))
                 db.conn.commit()
-                page.open(ft.AlertDialog(title=ft.Text("Success!"), content=ft.Text(f"Sale Done. Total: Tk {total}")))
+                page.open(ft.AlertDialog(title=ft.Text("Success!"), content=ft.Text(f"Sale recorded. Total: Tk {total}")))
                 page.go("/")
             page.views.append(ft.View("/sales", [
                 ft.AppBar(title=ft.Text("New Sale"), leading=ft.IconButton(ft.icons.ARROW_BACK, on_click=go_back)),
-                ft.Container(padding=20, content=ft.Column([drop, qty, ft.ElevatedButton("Confirm", on_click=sell, width=400, bgcolor="green", color="white")]))
+                ft.Container(padding=20, content=ft.Column([drop, qty, ft.ElevatedButton("Confirm Sale", on_click=confirm_sale, width=400, bgcolor="green", color="white")]))
             ]))
 
-        # ৫. ইতিহাস
+        # --- সেলস লগ ---
         elif page.route == "/history":
             db.cursor.execute("SELECT product_name, qty, total, date FROM sales_log ORDER BY id DESC")
             logs = db.cursor.fetchall()
